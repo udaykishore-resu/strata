@@ -65,6 +65,11 @@ type Schema struct {
 	// Labels reports whether the type carries GCP labels. The engine adds
 	// ownership labels (strata-stack, strata-lid) to labeled resources.
 	Labels bool `json:"labels,omitempty"`
+	// Shared marks project-level settings that many stacks (and people) can
+	// hold at once, such as an enabled API. An existing one is adopted
+	// instead of rejected, Create must be idempotent, and a rollback never
+	// removes one that existed before the deploy.
+	Shared bool `json:"shared,omitempty"`
 }
 
 // Env carries deployment-wide context to providers.

@@ -236,6 +236,9 @@ type Journal struct {
 	PhysicalID string         `json:"physicalId"`
 	Prev       *ResourceState `json:"prev,omitempty"` // state being replaced (Replace only)
 	StartedAt  time.Time      `json:"startedAt"`
+	// Preexisting records that a shared resource already existed before the
+	// call, so a resumed run still knows not to remove it on rollback.
+	Preexisting bool `json:"preexisting,omitempty"`
 }
 
 // UndoKind is how to revert one completed step.
@@ -253,6 +256,10 @@ type UndoEntry struct {
 	LogicalID string         `json:"logicalId"`
 	Created   *ResourceState `json:"created,omitempty"` // the resource the step produced
 	Prev      *ResourceState `json:"prev,omitempty"`    // the resource as it was before
+	// Preexisting marks a shared resource (an enabled API, say) that was
+	// already present before this deploy adopted it; rollback forgets it
+	// without deleting it.
+	Preexisting bool `json:"preexisting,omitempty"`
 }
 
 // Event is an append-only audit record of a resource or stack transition.

@@ -208,3 +208,36 @@ func TestDriftRestoreSendsLiveOldProperties(t *testing.T) {
 			rec.last.OldProperties["versioning"], rec.last.Properties["versioning"])
 	}
 }
+
+// The second live demo run: the APIs were left enabled by the first run (or
+// by hand), so they exist before the stack does. Enabling an enabled API must
+// adopt it, and a rollback must not disable an API it did not turn on.
+func TestPreEnabledAPIsAreAdoptedAndKeptOnRollback(t *testing.T) {
+	store := memory.New()
+	cloud := fake.NewCloud()
+	for _, svc := range []string{"iam.googleapis.com", "run.googleapis.com", "storage.googleapis.com"} {
+		cloud.Put("gcp:serviceusage:Service", svc, map[string]any{"service": svc})
+	}
+	eng := &engine.Engine{
+		Store: store, Registry: provider.NewRegistry(fake.Mirror(cloud, gcp.Schemas())...),
+		Project: "demo", Region: "us-central1", Concurrency: 4, ActionTimeout: time.Minute,
+	}
+
+	// A failed first deploy rolls back everything it created, but keeps the APIs.
+	cloud.Faults.Set("create:Web", 1)
+	if op := deploy(t, eng, store, nil); op.Result != state.StackRollbackComplete {
+		t.Fatalf("expected rollback, got %s: %s", op.Result, op.Error)
+	}
+	for _, svc := range []string{"iam.googleapis.com", "run.googleapis.com", "storage.googleapis.com"} {
+		if _, ok := cloud.Get("gcp:serviceusage:Service", svc); !ok {
+			t.Fatalf("rollback disabled pre-existing API %s", svc)
+		}
+	}
+	if n := cloud.Count(); n != 3 {
+		t.Fatalf("cloud has %d objects after rollback, want only the 3 APIs", n)
+	}
+
+	if op := deploy(t, eng, store, nil); op.Status != state.OpSucceeded {
+		t.Fatalf("deploy with pre-enabled APIs: %s", op.Error)
+	}
+}

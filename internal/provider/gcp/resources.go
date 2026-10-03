@@ -81,6 +81,7 @@ func (s *serviceUsage) Schema() provider.Schema {
 		},
 		Attributes:   map[string]string{"name": "Service name.", "state": "ENABLED or DISABLED."},
 		NameProperty: "service",
+		Shared:       true,
 		Name:         provider.NameConstraints{MaxLen: 255},
 	}
 }

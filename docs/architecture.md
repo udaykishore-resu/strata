@@ -46,7 +46,7 @@ flowchart LR
 | Worker crash | lease expires → another worker resumes from the checkpoint |
 | Crash between cloud call and record | journal before the call; on resume `Read` the journaled physical ID: if it exists, adopt and converge it; otherwise retry |
 | Re-running a create after a lost response | deterministic, journaled names + `ErrAlreadyExists` adoption gated on ownership labels (`strata-stack`, `strata-lid`) |
-| Name collisions with resources Strata doesn't own | custom names are checked before creating; a collision fails the step without an undo entry, so rollback can never delete or adopt a foreign resource |
+| Name collisions with resources Strata doesn't own | custom names are checked before creating; a collision fails the step without an undo entry, so rollback can never delete or adopt a foreign resource. The exception is *shared* project settings (enabled APIs): an existing one is adopted, and rollback forgets it without disabling it (the flag is journaled, so this holds across a crash too) |
 | Graceful shutdown | in-flight steps finish, progress is saved, the lease is handed back immediately |
 | Partial DB writes | resource state and checkpoint are saved in one transaction (`SaveProgress`) |
 | Clock skew | lease expiry uses the database clock |

@@ -379,6 +379,7 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 	// A custom name may already be taken by a resource this stack does not
 	// own. Check before creating so a collision can never be "rolled back" by
 	// deleting someone else's resource, and so a journaled name is always ours.
+	preexisting := false
 	if explicit {
 		var rd provider.Result
 		rerr := r.e.callProvider(ctx, res.Type, "read", func(c context.Context) error {
@@ -387,6 +388,11 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 			return e
 		})
 		switch {
+		case rerr == nil && schema.Shared:
+			// A project-level setting someone already turned on (an API
+			// enabled by hand or by another stack): adopt it. Create is
+			// idempotent for shared types, and rollback will leave it alone.
+			preexisting = true
 		case rerr == nil:
 			if !schema.Labels || !provider.OwnedBy(rd.Observed, r.stack.Name, lid) {
 				return r.recordFailure(ctx, ch, res.Type, name, fmt.Errorf(
@@ -403,7 +409,7 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 	}
 
 	r.mu.Lock()
-	r.cp().InFlight[lid] = state.Journal{Action: ch.Action, Type: res.Type, PhysicalID: name, Prev: prev, StartedAt: time.Now().UTC()}
+	r.cp().InFlight[lid] = state.Journal{Action: ch.Action, Type: res.Type, PhysicalID: name, Prev: prev, StartedAt: time.Now().UTC(), Preexisting: preexisting}
 	err := r.persist(ctx)
 	r.mu.Unlock()
 	if err != nil {
@@ -426,7 +432,7 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 			return errInterrupted // keep the journal; resume will reconcile
 		}
 		var undo *state.UndoEntry
-		if name != "" && !alreadyExisted {
+		if name != "" && !alreadyExisted && !preexisting {
 			// The name was free (generated, or checked above), so anything
 			// left behind by this failed create is ours: remove it on rollback.
 			kind := state.UndoDeleteCreated
@@ -455,7 +461,7 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 	r.mu.Lock()
 	r.stack.Resources[lid] = ns
 	cp := r.cp()
-	cp.Undo = append(cp.Undo, state.UndoEntry{Kind: kind, LogicalID: lid, Created: cloneState(ns), Prev: prev})
+	cp.Undo = append(cp.Undo, state.UndoEntry{Kind: kind, LogicalID: lid, Created: cloneState(ns), Prev: prev, Preexisting: preexisting})
 	delete(cp.InFlight, lid)
 	cp.Done[lid] = true
 	err = r.persist(ctx)
@@ -463,7 +469,11 @@ func (r *run) create(ctx context.Context, p provider.Provider, ch state.Change, 
 	if err != nil {
 		return err
 	}
-	r.event(ctx, lid, res.Type, ns.PhysicalID, verb+"_COMPLETE", "")
+	reason := ""
+	if preexisting {
+		reason = "already enabled; adopted"
+	}
+	r.event(ctx, lid, res.Type, ns.PhysicalID, verb+"_COMPLETE", reason)
 	return nil
 }
 
@@ -669,7 +679,7 @@ func (r *run) reconcileApply(ctx context.Context) (failed bool, err error) {
 		r.mu.Lock()
 		cp := r.cp()
 		delete(cp.InFlight, lid)
-		cp.Undo = append(cp.Undo, state.UndoEntry{Kind: kind, LogicalID: lid, Created: cloneState(ns), Prev: j.Prev})
+		cp.Undo = append(cp.Undo, state.UndoEntry{Kind: kind, LogicalID: lid, Created: cloneState(ns), Prev: j.Prev, Preexisting: j.Preexisting})
 		if uerr != nil {
 			ns.Status, ns.StatusReason = state.ResourceFailed, uerr.Error()
 			cp.Failures = append(cp.Failures, fmt.Sprintf("%s: %v", lid, uerr))
@@ -917,6 +927,10 @@ func (r *run) undoOne(ctx context.Context, u state.UndoEntry) error {
 	switch u.Kind {
 	case state.UndoDeleteCreated, state.UndoRevertReplace:
 		if u.Created == nil || u.Created.PhysicalID == "" {
+			return nil
+		}
+		if u.Preexisting {
+			r.event(ctx, u.LogicalID, u.Created.Type, u.Created.PhysicalID, "DELETE_SKIPPED", "rollback: existed before this deploy")
 			return nil
 		}
 		p, err := r.e.Registry.Get(u.Created.Type)

@@ -243,8 +243,9 @@ func (p *Provider) Create(ctx context.Context, req provider.Request) (provider.R
 		p.cloud.objects[p.schema.Type] = objs
 	}
 	if _, exists := objs[id]; exists {
-		if p.schema.NameProperty == "" {
-			// Types without a name property must create idempotently (like IAM bindings).
+		if p.schema.NameProperty == "" || p.schema.Shared {
+			// Types without a name property, and shared settings such as
+			// enabled APIs, must create idempotently.
 			return provider.Result{PhysicalID: id, Attributes: p.attributes(id, req)}, nil
 		}
 		return provider.Result{}, fmt.Errorf("%s %q: %w", p.schema.Type, id, provider.ErrAlreadyExists)
