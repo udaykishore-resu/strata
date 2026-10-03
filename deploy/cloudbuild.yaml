@@ -1,0 +1,45 @@
+# Continuous delivery: test, build, push and roll out a new revision.
+#   gcloud builds submit --config deploy/cloudbuild.yaml \
+#     --substitutions _REGION=us-central1,_SERVICE=strata,_REPO=strata,_TAG=$(git rev-parse --short HEAD)
+# In a Cloud Build trigger set _TAG to $SHORT_SHA.
+# The Cloud Build service account needs roles/run.admin, roles/artifactregistry.writer
+# and roles/iam.serviceAccountUser on the engine service account.
+substitutions:
+  _TAG: manual
+  _REGION: us-central1
+  _SERVICE: strata
+  _REPO: strata
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: test
+    name: golang:1.24
+    entrypoint: bash
+    args: ["-c", "go vet ./... && go test -race ./..."]
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=VERSION=${_TAG}
+      - -t=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/strata-server:${_TAG}
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/strata-server:${_TAG}"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/strata-server:${_TAG}
+      - --region=${_REGION}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/strata-server:${_TAG}

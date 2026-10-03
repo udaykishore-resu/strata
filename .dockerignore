@@ -1,0 +1,7 @@
+.git
+.github
+bin
+strata.out
+coverage.out
+*.test
+docs

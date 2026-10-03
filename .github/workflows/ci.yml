@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: strata_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: test (race, with Postgres)
+        env:
+          STRATA_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/strata_test?sslmode=disable
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: coverage
+        run: go tool cover -func=coverage.out | tail -1
+      - name: example template is current
+        run: |
+          go run ./examples/orders-platform -out /tmp/synth
+          diff -u examples/orders-platform/orders.template.json /tmp/synth/orders.template.json
+      - name: resource type docs are current
+        run: |
+          go run ./tools/docgen > /tmp/resource-types.md
+          diff -u docs/resource-types.md /tmp/resource-types.md
+      - name: end-to-end demo
+        run: ./scripts/demo.sh
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: VERSION=${{ github.sha }}
+
+  # Continuous delivery to Cloud Run via Workload Identity Federation (no
+  # keys). Enabled when the repository variables below are configured.
+  deploy:
+    needs: image
+    if: github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: build and roll out
+        run: |
+          gcloud builds submit --project "${{ vars.GCP_PROJECT_ID }}" --config deploy/cloudbuild.yaml \
+            --substitutions "_REGION=${{ vars.GCP_REGION || 'us-central1' }},_SERVICE=strata,_REPO=strata,_TAG=${GITHUB_SHA::7}"

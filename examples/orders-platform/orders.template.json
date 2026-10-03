@@ -1,0 +1,306 @@
+{
+  "formatVersion": "2026-10-01",
+  "description": "Orders platform: API, uploads, events",
+  "parameters": {
+    "ApiImage": {
+      "type": "string",
+      "default": "us-docker.pkg.dev/cloudrun/container/hello",
+      "description": "Container image for the orders API."
+    },
+    "Env": {
+      "type": "string",
+      "default": "dev",
+      "allowed": [
+        "dev",
+        "prod"
+      ],
+      "description": "Deployment environment label."
+    }
+  },
+  "resources": {
+    "Api": {
+      "type": "gcp:run:Service",
+      "properties": {
+        "env": {
+          "ENV": {
+            "param": "Env"
+          },
+          "EVENTS_TOPIC": {
+            "ref": "OrderEvents"
+          },
+          "UPLOAD_BUCKET": {
+            "ref": "Uploads"
+          }
+        },
+        "image": {
+          "param": "ApiImage"
+        },
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        },
+        "maxInstances": 20,
+        "serviceAccount": {
+          "getAtt": [
+            "ApiServiceAccount4B8970A7",
+            "email"
+          ]
+        }
+      },
+      "dependsOn": [
+        "ApiRun"
+      ]
+    },
+    "ApiIam": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "iam.googleapis.com"
+      }
+    },
+    "ApiPubsub": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "pubsub.googleapis.com"
+      }
+    },
+    "ApiRun": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "run.googleapis.com"
+      }
+    },
+    "ApiRunInvokerGrant27CE64C5": {
+      "type": "gcp:run:ServiceIamMember",
+      "properties": {
+        "member": "allUsers",
+        "role": "roles/run.invoker",
+        "service": {
+          "ref": "Api"
+        }
+      }
+    },
+    "ApiSecretmanager": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "secretmanager.googleapis.com"
+      }
+    },
+    "ApiServiceAccount4B8970A7": {
+      "type": "gcp:iam:ServiceAccount",
+      "properties": {
+        "displayName": "Cloud Run service orders/Api"
+      },
+      "dependsOn": [
+        "ApiIam"
+      ]
+    },
+    "ApiStorage": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "storage.googleapis.com"
+      }
+    },
+    "DbPassword": {
+      "type": "gcp:secretmanager:Secret",
+      "properties": {
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        }
+      },
+      "dependsOn": [
+        "ApiSecretmanager"
+      ]
+    },
+    "DbPasswordSecretmanagerSecretAccessorGrant3BB1FED5": {
+      "type": "gcp:secretmanager:SecretIamMember",
+      "properties": {
+        "member": {
+          "getAtt": [
+            "ApiServiceAccount4B8970A7",
+            "member"
+          ]
+        },
+        "role": "roles/secretmanager.secretAccessor",
+        "secret": {
+          "ref": "DbPassword"
+        }
+      }
+    },
+    "Fulfillment": {
+      "type": "gcp:pubsub:Subscription",
+      "properties": {
+        "ackDeadlineSeconds": 30,
+        "deadLetterTopic": {
+          "ref": "OrderEventsDlq"
+        },
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        },
+        "maxDeliveryAttempts": 5,
+        "topic": {
+          "ref": "OrderEvents"
+        }
+      }
+    },
+    "FulfillmentPubsubSubscriberGrant22E16838": {
+      "type": "gcp:pubsub:SubscriptionIamMember",
+      "properties": {
+        "member": {
+          "getAtt": [
+            "FulfillmentWorker",
+            "member"
+          ]
+        },
+        "role": "roles/pubsub.subscriber",
+        "subscription": {
+          "ref": "Fulfillment"
+        }
+      }
+    },
+    "FulfillmentWorker": {
+      "type": "gcp:iam:ServiceAccount",
+      "properties": {
+        "displayName": "orders fulfillment worker"
+      },
+      "dependsOn": [
+        "ApiIam"
+      ]
+    },
+    "OrderEvents": {
+      "type": "gcp:pubsub:Topic",
+      "properties": {
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        }
+      },
+      "dependsOn": [
+        "ApiPubsub"
+      ]
+    },
+    "OrderEventsDlq": {
+      "type": "gcp:pubsub:Topic",
+      "properties": {
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        },
+        "messageRetentionDuration": "604800s"
+      },
+      "dependsOn": [
+        "ApiPubsub"
+      ]
+    },
+    "OrderEventsPubsubPublisherGrant1A77F5A0": {
+      "type": "gcp:pubsub:TopicIamMember",
+      "properties": {
+        "member": {
+          "getAtt": [
+            "ApiServiceAccount4B8970A7",
+            "member"
+          ]
+        },
+        "role": "roles/pubsub.publisher",
+        "topic": {
+          "ref": "OrderEvents"
+        }
+      }
+    },
+    "Uploads": {
+      "type": "gcp:storage:Bucket",
+      "properties": {
+        "labels": {
+          "app": "orders",
+          "env": {
+            "param": "Env"
+          }
+        },
+        "lifecycleDeleteAfterDays": 90,
+        "versioning": true
+      },
+      "dependsOn": [
+        "ApiStorage"
+      ]
+    },
+    "UploadsStorageObjectAdminGrant1A91D7AA": {
+      "type": "gcp:storage:BucketIamMember",
+      "properties": {
+        "bucket": {
+          "ref": "Uploads"
+        },
+        "member": {
+          "getAtt": [
+            "ApiServiceAccount4B8970A7",
+            "member"
+          ]
+        },
+        "role": "roles/storage.objectAdmin"
+      }
+    },
+    "UploadsStorageObjectViewerGrantE8AAC64D": {
+      "type": "gcp:storage:BucketIamMember",
+      "properties": {
+        "bucket": {
+          "ref": "Uploads"
+        },
+        "member": {
+          "getAtt": [
+            "FulfillmentWorker",
+            "member"
+          ]
+        },
+        "role": "roles/storage.objectViewer"
+      }
+    }
+  },
+  "outputs": {
+    "ApiUrl": {
+      "value": {
+        "getAtt": [
+          "Api",
+          "uri"
+        ]
+      },
+      "description": "Public URL of the orders API"
+    },
+    "EventsTopic": {
+      "value": {
+        "getAtt": [
+          "OrderEvents",
+          "id"
+        ]
+      },
+      "description": "Order events topic"
+    },
+    "UploadBucket": {
+      "value": {
+        "getAtt": [
+          "Uploads",
+          "url"
+        ]
+      },
+      "description": "Uploads bucket"
+    },
+    "WorkerServiceAccount": {
+      "value": {
+        "getAtt": [
+          "FulfillmentWorker",
+          "email"
+        ]
+      },
+      "description": "Identity for the fulfillment worker"
+    }
+  }
+}

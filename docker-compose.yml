@@ -1,0 +1,36 @@
+# Local stack with the production store: Postgres + the engine using the
+# fake cloud provider. Swap STRATA_PROVIDER=gcp and mount credentials to
+# manage real resources.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: strata
+      POSTGRES_PASSWORD: strata
+      POSTGRES_DB: strata
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strata"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  strata:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://strata:strata@postgres:5432/strata?sslmode=disable
+      STRATA_STORE: postgres
+      STRATA_PROVIDER: fake
+      STRATA_FAKE_LATENCY: 300ms
+      STRATA_AUTH: none
+      STRATA_PROJECT: local-project
+      STRATA_REGION: us-central1
+      STRATA_LOG_FORMAT: text
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:
