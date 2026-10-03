@@ -198,7 +198,16 @@ func isServiceAccountPropagation(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(ae.Message)
-	return strings.Contains(msg, "service account") && (strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found"))
+	if !strings.Contains(msg, "service account") {
+		return false
+	}
+	// Seen live from Cloud Run seconds after the account was created:
+	//   403 Permission 'iam.serviceaccounts.actAs' denied on service account
+	//   x@p.iam.gserviceaccount.com (or it may not exist).
+	// A genuine missing actAs grant looks the same, so it is retried until
+	// the deadline and then surfaced unchanged.
+	return strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "may not exist")
 }
 
 // retryNewServiceAccount retries fn for up to two minutes while it fails

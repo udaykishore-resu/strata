@@ -454,8 +454,12 @@ func TestRunServiceRetriesNewServiceAccount(t *testing.T) {
 	attempts := 0
 	f.on("POST /v2/projects/proj/locations/us-central1/services", func(w http.ResponseWriter, r *http.Request, _ map[string]any) {
 		attempts++
-		if attempts < 3 {
+		switch attempts {
+		case 1:
 			writeErr(w, 400, "INVALID_ARGUMENT", "Service account web-sa@proj.iam.gserviceaccount.com does not exist.")
+			return
+		case 2: // the exact error Cloud Run returned in a live demo run
+			writeErr(w, 403, "PERMISSION_DENIED", "Permission 'iam.serviceaccounts.actAs' denied on service account web-sa@proj.iam.gserviceaccount.com (or it may not exist).")
 			return
 		}
 		writeJSON(w, map[string]any{"name": "op", "done": true})
@@ -474,5 +478,8 @@ func TestRunServiceRetriesNewServiceAccount(t *testing.T) {
 	// A bad image is a real error and must not be retried.
 	if isServiceAccountPropagation(&APIError{Code: 400, Message: "Image 'gcr.io/x/missing' not found."}) {
 		t.Fatal("image errors must not be treated as propagation delay")
+	}
+	if isServiceAccountPropagation(&APIError{Code: 403, Message: "Permission 'run.services.create' denied on resource 'projects/proj'."}) {
+		t.Fatal("permission errors unrelated to a service account must not be retried")
 	}
 }
