@@ -148,12 +148,6 @@ The GCP providers are verified against their REST contracts with fakes. Before r
 - No cross-stack references or nested stacks yet; stack outputs are readable via the API.
 - Secret values are intentionally out of band; only secret containers and access are declared.
 
-## Repository
-
-**Description:** CloudFormation-style deployment engine for Google Cloud with a CDK in Go. Change sets, automatic rollback, crash-safe resumable operations and drift detection over direct GCP REST APIs, without Terraform.
-
-**Topics:** `gcp` `google-cloud` `infrastructure-as-code` `iac` `cdk` `cloudformation` `deployment-engine` `golang` `cloud-run` `control-plane` `platform-engineering` `devops` `postgresql` `distributed-systems`
-
 ## Skills demonstrated
 
 - **Distributed systems:** lease-based work distribution, heartbeats and fencing tokens, optimistic concurrency (CAS versions), atomic checkpointing, idempotent and resumable state machines, write-ahead intent journaling and crash reconciliation.
