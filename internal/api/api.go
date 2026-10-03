@@ -127,6 +127,9 @@ func (s *Server) deleteStack(w http.ResponseWriter, r *http.Request) {
 type ChangeSetRequest struct {
 	Template   json.RawMessage `json:"template"`
 	Parameters map[string]any  `json:"parameters,omitempty"`
+	// Refresh reads live resources before planning so out-of-band changes
+	// are detected and restored. Defaults to true.
+	Refresh *bool `json:"refresh,omitempty"`
 }
 
 func (s *Server) createChangeSet(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +147,8 @@ func (s *Server) createChangeSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cs, err := s.Engine.Plan(r.Context(), r.PathValue("stack"), tmpl, req.Parameters, caller(r))
+	opts := engine.PlanOptions{Refresh: req.Refresh == nil || *req.Refresh}
+	cs, err := s.Engine.PlanWith(r.Context(), r.PathValue("stack"), tmpl, req.Parameters, caller(r), opts)
 	if err != nil {
 		s.fail(w, r, err)
 		return

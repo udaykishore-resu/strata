@@ -41,7 +41,7 @@ resource.type="cloud_run_revision" jsonPayload.operation="op-..."               
 1. `strata describe -s <stack> --json` shows resources with `status: FAILED` and `statusReason`, plus `pendingCleanup`.
 2. Fix the underlying cause (usually a missing permission or a quota).
 3. Deploy again: resources in `FAILED` state are always re-applied, and `pendingCleanup` is retried.
-4. If a resource was deleted out of band, deploying recreates it. Drift detection (`strata drift`) shows which.
+4. Properties changed out of band are restored by the next deploy: planning refreshes live state first (skip with `--refresh=false`), and the plan marks those properties `(drift: changed outside Strata)`. A resource deleted out of band shows as `DELETED` in `strata drift`; remove it from the template and deploy, then add it back, to recreate it.
 
 ## Stuck operations
 

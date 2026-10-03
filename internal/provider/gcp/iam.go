@@ -190,6 +190,32 @@ func (m *iamMember) modify(ctx context.Context, path string, fn func(policy) boo
 	}
 }
 
+// isServiceAccountPropagation detects a service account that was created
+// moments ago and is not yet visible to another API (for example Cloud Run).
+func isServiceAccountPropagation(err error) bool {
+	var ae *APIError
+	if !errors.As(err, &ae) || (ae.Code != http.StatusBadRequest && ae.Code != http.StatusNotFound && ae.Code != http.StatusForbidden) {
+		return false
+	}
+	msg := strings.ToLower(ae.Message)
+	return strings.Contains(msg, "service account") && (strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found"))
+}
+
+// retryNewServiceAccount retries fn for up to two minutes while it fails
+// only because a freshly created service account is still propagating.
+func (c *Client) retryNewServiceAccount(ctx context.Context, fn func() error) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		if err == nil || !isServiceAccountPropagation(err) || time.Now().After(deadline) {
+			return err
+		}
+		if werr := c.wait(ctx, backoff(attempt)); werr != nil {
+			return errors.Join(err, werr)
+		}
+	}
+}
+
 // isPrincipalPropagation detects "service account does not exist" errors
 // that occur for a short time after a service account is created.
 func isPrincipalPropagation(err error) bool {

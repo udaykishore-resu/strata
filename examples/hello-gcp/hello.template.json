@@ -1,0 +1,121 @@
+{
+  "formatVersion": "2026-10-01",
+  "description": "Minimal Strata demo: a public Cloud Run service with a private bucket",
+  "parameters": {
+    "Image": {
+      "type": "string",
+      "default": "us-docker.pkg.dev/cloudrun/container/hello",
+      "description": "Container image for the web service."
+    }
+  },
+  "resources": {
+    "ApiIam": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "iam.googleapis.com"
+      }
+    },
+    "ApiRun": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "run.googleapis.com"
+      }
+    },
+    "ApiStorage": {
+      "type": "gcp:serviceusage:Service",
+      "properties": {
+        "service": "storage.googleapis.com"
+      }
+    },
+    "Assets": {
+      "type": "gcp:storage:Bucket",
+      "properties": {
+        "forceDestroy": true,
+        "labels": {
+          "app": "hello"
+        },
+        "versioning": true
+      },
+      "dependsOn": [
+        "ApiStorage"
+      ]
+    },
+    "AssetsStorageObjectViewerGrantEDE63DC7": {
+      "type": "gcp:storage:BucketIamMember",
+      "properties": {
+        "bucket": {
+          "ref": "Assets"
+        },
+        "member": {
+          "getAtt": [
+            "WebServiceAccount49B3496C",
+            "member"
+          ]
+        },
+        "role": "roles/storage.objectViewer"
+      }
+    },
+    "Web": {
+      "type": "gcp:run:Service",
+      "properties": {
+        "env": {
+          "ASSETS_BUCKET": {
+            "ref": "Assets"
+          }
+        },
+        "image": {
+          "param": "Image"
+        },
+        "labels": {
+          "app": "hello"
+        },
+        "maxInstances": 2,
+        "serviceAccount": {
+          "getAtt": [
+            "WebServiceAccount49B3496C",
+            "email"
+          ]
+        }
+      },
+      "dependsOn": [
+        "ApiRun"
+      ]
+    },
+    "WebRunInvokerGrantB6253E1D": {
+      "type": "gcp:run:ServiceIamMember",
+      "properties": {
+        "member": "allUsers",
+        "role": "roles/run.invoker",
+        "service": {
+          "ref": "Web"
+        }
+      }
+    },
+    "WebServiceAccount49B3496C": {
+      "type": "gcp:iam:ServiceAccount",
+      "properties": {
+        "displayName": "Cloud Run service hello/Web"
+      },
+      "dependsOn": [
+        "ApiIam"
+      ]
+    }
+  },
+  "outputs": {
+    "Bucket": {
+      "value": {
+        "ref": "Assets"
+      },
+      "description": "Private assets bucket"
+    },
+    "Url": {
+      "value": {
+        "getAtt": [
+          "Web",
+          "uri"
+        ]
+      },
+      "description": "Public URL of the hello service"
+    }
+  }
+}

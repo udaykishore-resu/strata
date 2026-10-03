@@ -74,9 +74,23 @@ func NewID(prefix string) string {
 	return fmt.Sprintf("%s-%s-%s", prefix, time.Now().UTC().Format("20060102t150405"), hex.EncodeToString(b))
 }
 
+// PlanOptions tune how a change set is computed.
+type PlanOptions struct {
+	// Refresh reads every existing resource from the cloud first, so
+	// properties changed out of band show up as drift and are restored by
+	// the deploy. Without it the plan compares only against recorded state.
+	Refresh bool
+}
+
 // Plan validates a template and computes the change set that would deploy it
-// to the named stack. The change set is persisted and can be executed later.
+// to the named stack, comparing against recorded state only. The change set
+// is persisted and can be executed later.
 func (e *Engine) Plan(ctx context.Context, stackName string, tmpl *template.Template, params map[string]any, createdBy string) (*state.ChangeSet, error) {
+	return e.PlanWith(ctx, stackName, tmpl, params, createdBy, PlanOptions{})
+}
+
+// PlanWith is Plan with options.
+func (e *Engine) PlanWith(ctx context.Context, stackName string, tmpl *template.Template, params map[string]any, createdBy string, opts PlanOptions) (*state.ChangeSet, error) {
 	if err := ValidateStackName(stackName); err != nil {
 		return nil, err
 	}
@@ -101,7 +115,11 @@ func (e *Engine) Plan(ctx context.Context, stackName string, tmpl *template.Temp
 		return nil, err
 	}
 
-	changes, err := e.diff(cur, tmpl, resolvedParams)
+	var live map[string]map[string]any
+	if cur != nil && opts.Refresh {
+		live = e.liveDrift(ctx, cur)
+	}
+	changes, err := e.diff(cur, tmpl, resolvedParams, live)
 	if err != nil {
 		return nil, &ValidationError{err}
 	}
@@ -217,7 +235,8 @@ func (r *planResolver) GetAtt(id, attr string) (any, error) {
 func (r *planResolver) Param(n string) (any, error) { return r.params[n], nil }
 
 // diff computes per-resource actions in dependency order, then deletions.
-func (e *Engine) diff(cur *state.Stack, tmpl *template.Template, params map[string]any) ([]state.Change, error) {
+// live holds refreshed values of drifted properties (may be nil).
+func (e *Engine) diff(cur *state.Stack, tmpl *template.Template, params map[string]any, live map[string]map[string]any) ([]state.Change, error) {
 	g, err := template.BuildGraph(tmpl)
 	if err != nil {
 		return nil, err
@@ -259,13 +278,21 @@ func (e *Engine) diff(cur *state.Stack, tmpl *template.Template, params map[stri
 		default:
 			ch.PhysicalID = existing.PhysicalID
 			forceNew := false
+			drifted := live[id]
 			for _, k := range unionKeys(desired, existing.Properties) {
 				nv, ov := desired[k], existing.Properties[k]
+				lv, isDrift := drifted[k]
+				if isDrift {
+					ov = lv
+				}
 				unknown := template.ContainsUnknown(nv)
 				if !unknown && template.Equal(nv, ov) {
 					continue
 				}
-				d := state.PropertyDiff{Name: k, Old: ov, New: nv, KnownLater: unknown}
+				if isDrift && !unknown && template.EquivalentLive(nv, ov) {
+					continue
+				}
+				d := state.PropertyDiff{Name: k, Old: ov, New: nv, KnownLater: unknown, Drift: isDrift}
 				if spec, ok := schema.Properties[k]; ok && spec.ForceNew {
 					d.ForcesNew = true
 					forceNew = true
@@ -278,6 +305,14 @@ func (e *Engine) diff(cur *state.Stack, tmpl *template.Template, params map[stri
 			}
 			if newPolicy := tr.EffectiveDeletionPolicy(); newPolicy != oldPolicy {
 				ch.Diffs = append(ch.Diffs, state.PropertyDiff{Name: "(deletionPolicy)", Old: oldPolicy, New: newPolicy})
+			}
+			for _, d := range ch.Diffs {
+				if d.Drift {
+					if ch.Live == nil {
+						ch.Live = map[string]any{}
+					}
+					ch.Live[d.Name] = d.Old
+				}
 			}
 			switch {
 			case len(ch.Diffs) == 0 && existing.Status == state.ResourceReady:

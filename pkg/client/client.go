@@ -95,6 +95,7 @@ type PropertyDiff struct {
 	New        any    `json:"new,omitempty"`
 	ForcesNew  bool   `json:"forcesNew,omitempty"`
 	KnownLater bool   `json:"knownAfterApply,omitempty"`
+	Drift      bool   `json:"drift,omitempty"`
 }
 
 type Change struct {
@@ -206,9 +207,26 @@ type DriftReport struct {
 func stackPath(stack string) string { return "/v1/stacks/" + url.PathEscape(stack) }
 
 // CreateChangeSet plans a deployment. template is the raw template JSON.
+// The server refreshes live state first; see CreateChangeSetWith.
 func (c *Client) CreateChangeSet(ctx context.Context, stack string, template json.RawMessage, params map[string]any) (*ChangeSet, error) {
+	return c.CreateChangeSetWith(ctx, stack, template, params, ChangeSetOptions{})
+}
+
+// ChangeSetOptions tune planning.
+type ChangeSetOptions struct {
+	// NoRefresh plans against recorded state only, skipping the read of
+	// live resources (faster, but out-of-band changes are not restored).
+	NoRefresh bool
+}
+
+// CreateChangeSetWith is CreateChangeSet with options.
+func (c *Client) CreateChangeSetWith(ctx context.Context, stack string, template json.RawMessage, params map[string]any, opts ChangeSetOptions) (*ChangeSet, error) {
+	body := map[string]any{"template": template, "parameters": params}
+	if opts.NoRefresh {
+		body["refresh"] = false
+	}
 	var out ChangeSet
-	err := c.do(ctx, http.MethodPost, stackPath(stack)+"/changesets", map[string]any{"template": template, "parameters": params}, &out)
+	err := c.do(ctx, http.MethodPost, stackPath(stack)+"/changesets", body, &out)
 	return &out, err
 }
 

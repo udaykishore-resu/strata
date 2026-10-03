@@ -44,6 +44,18 @@ func (e *Engine) DetectDrift(ctx context.Context, stackName string) (*DriftRepor
 	if err != nil {
 		return nil, err
 	}
+	results := e.driftAll(ctx, st)
+	rep := &DriftReport{Stack: st.Name, Resources: results}
+	for _, r := range results {
+		if r.Status == DriftModified || r.Status == DriftDeleted {
+			rep.Drifted = true
+		}
+	}
+	return rep, nil
+}
+
+// driftAll checks every resource of a stack concurrently, sorted by logical ID.
+func (e *Engine) driftAll(ctx context.Context, st *state.Stack) []DriftResult {
 	ids := make([]string, 0, len(st.Resources))
 	for id := range st.Resources {
 		ids = append(ids, id)
@@ -64,13 +76,26 @@ func (e *Engine) DetectDrift(ctx context.Context, stackName string) (*DriftRepor
 	}
 	wg.Wait()
 
-	rep := &DriftReport{Stack: st.Name, Resources: results}
-	for _, r := range results {
-		if r.Status == DriftModified || r.Status == DriftDeleted {
-			rep.Drifted = true
+	return results
+}
+
+// liveDrift refreshes a stack before planning: it returns, per logical ID,
+// the observed values of properties that drifted from the applied state.
+// Read errors and deleted resources are left to the normal plan (a refresh
+// that cannot read a resource should not block a deploy).
+func (e *Engine) liveDrift(ctx context.Context, st *state.Stack) map[string]map[string]any {
+	out := map[string]map[string]any{}
+	for _, r := range e.driftAll(ctx, st) {
+		if r.Status != DriftModified {
+			continue
 		}
+		live := map[string]any{}
+		for _, d := range r.Diffs {
+			live[d.Name] = d.New
+		}
+		out[r.LogicalID] = live
 	}
-	return rep, nil
+	return out
 }
 
 func (e *Engine) driftOne(ctx context.Context, stack string, rs *state.ResourceState) DriftResult {
@@ -117,7 +142,7 @@ func (e *Engine) driftOne(ctx context.Context, stack string, rs *state.ResourceS
 				want = map[string]any{}
 			}
 		}
-		if !template.Equal(obs, want) {
+		if !template.EquivalentLive(obs, want) {
 			out.Diffs = append(out.Diffs, state.PropertyDiff{Name: k, Old: want, New: obs})
 		}
 	}

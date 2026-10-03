@@ -304,7 +304,9 @@ func (r *run) apply(ctx context.Context) error {
 		cp.Phase = state.PhaseRollback
 		r.stack.Status = state.StackRollingBack
 		r.stack.StatusReason = strings.Join(cp.Failures, "; ")
-		r.event(ctx, "", "", "", "ROLLBACK_IN_PROGRESS", r.stack.StatusReason)
+		// The full error is already on the UPDATE_FAILED/CREATE_FAILED event
+		// and in the final status; here, just name what failed.
+		r.event(ctx, "", "", "", "ROLLBACK_IN_PROGRESS", "undoing changes after failure of "+failedIDs(cp.Failures))
 	} else {
 		r.enterCleanup()
 		cp.Phase = state.PhaseCleanup
@@ -526,7 +528,7 @@ func (r *run) update(ctx context.Context, p provider.Provider, ch state.Change, 
 	req := provider.Request{
 		Env: r.env(), LogicalID: lid, PhysicalID: cur.PhysicalID,
 		Properties:    r.requestProps(schema, lid, props, name),
-		OldProperties: r.requestProps(schema, lid, cur.Properties, name),
+		OldProperties: r.requestProps(schema, lid, withLive(cur.Properties, ch.Live), name),
 	}
 	var result provider.Result
 	err = r.e.callProvider(ctx, res.Type, "update", func(c context.Context) error {
@@ -1122,4 +1124,30 @@ func copyBoolMap(m map[string]bool) map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+// withLive overlays refreshed (drifted) values on the applied properties, so
+// a provider computing a patch from old→new sees the out-of-band change.
+func withLive(applied, live map[string]any) map[string]any {
+	if len(live) == 0 {
+		return applied
+	}
+	out := make(map[string]any, len(applied)+len(live))
+	for k, v := range applied {
+		out[k] = v
+	}
+	for k, v := range live {
+		out[k] = v
+	}
+	return out
+}
+
+// failedIDs extracts the logical IDs from "LogicalID: error" failure lines.
+func failedIDs(failures []string) string {
+	ids := make([]string, 0, len(failures))
+	for _, f := range failures {
+		id, _, _ := strings.Cut(f, ":")
+		ids = append(ids, id)
+	}
+	return strings.Join(ids, ", ")
 }

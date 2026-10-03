@@ -55,7 +55,7 @@ flowchart LR
 
 Every resource type implements `Schema / Create / Read / Update / Delete`. Handlers run to completion, polling long-running operations internally, and wrap `ErrNotFound` / `ErrAlreadyExists` so the engine can make decisions. The schema declares property types, defaults, required and `forceNew` flags, attributes, the name property and name length limits, and whether the type supports labels. That is all the engine needs to plan, generate names and inject ownership labels; providers know nothing about stacks, ordering or rollback.
 
-`Read` also returns *observed* input properties, which drift detection compares with applied state.
+`Read` also returns *observed* input properties, which drift detection compares with applied state. Planning uses the same reads (a *refresh*, on by default): drifted properties are diffed from their live value and sent to `Update` as the old value, so a redeploy restores them even when the template has not changed. Absent, `null`, `""` and empty collections compare equal, because Google APIs report unset fields inconsistently.
 
 ## Why direct REST instead of client SDKs
 

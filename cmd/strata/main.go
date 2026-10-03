@@ -204,6 +204,7 @@ type planFlags struct {
 	file    *string
 	params  params
 	verbose *bool
+	refresh *bool
 }
 
 func newPlanFlags(name string) *planFlags {
@@ -212,6 +213,7 @@ func newPlanFlags(name string) *planFlags {
 	pf.stack = fs.String("s", "", "stack name (required)")
 	pf.file = fs.String("f", "", "template file, or - for stdin (required)")
 	pf.verbose = fs.Bool("v", false, "show all property values, including creates")
+	pf.refresh = fs.Bool("refresh", true, "read live resources first so out-of-band changes are restored")
 	fs.Var(pf.params, "p", "parameter KEY=VALUE (repeatable)")
 	return pf
 }
@@ -231,7 +233,7 @@ func (c *cli) plan(ctx context.Context, pf *planFlags) (*client.ChangeSet, error
 	if err != nil {
 		return nil, err
 	}
-	cs, err := c.client().CreateChangeSet(ctx, *pf.stack, raw, pf.params)
+	cs, err := c.client().CreateChangeSetWith(ctx, *pf.stack, raw, pf.params, client.ChangeSetOptions{NoRefresh: !*pf.refresh})
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +409,9 @@ func (c *cli) printPlan(cs *client.ChangeSet, verbose bool) {
 			note := ""
 			if d.ForcesNew {
 				note = c.paint("35", "  (forces replacement)")
+			}
+			if d.Drift {
+				note += c.paint("36", "  (drift: changed outside Strata)")
 			}
 			fmt.Fprintf(c.out, "               %s: %s → %s%s\n", d.Name, fmtValue(d.Old), newV, note)
 		}

@@ -448,3 +448,31 @@ func TestMetadataTokenFlow(t *testing.T) {
 		t.Fatalf("project = %q %v", p, err)
 	}
 }
+
+func TestRunServiceRetriesNewServiceAccount(t *testing.T) {
+	f, c := newFakeAPI(t)
+	attempts := 0
+	f.on("POST /v2/projects/proj/locations/us-central1/services", func(w http.ResponseWriter, r *http.Request, _ map[string]any) {
+		attempts++
+		if attempts < 3 {
+			writeErr(w, 400, "INVALID_ARGUMENT", "Service account web-sa@proj.iam.gserviceaccount.com does not exist.")
+			return
+		}
+		writeJSON(w, map[string]any{"name": "op", "done": true})
+	})
+	f.on("GET /v2/projects/proj/locations/us-central1/services/web", func(w http.ResponseWriter, r *http.Request, _ map[string]any) {
+		writeJSON(w, map[string]any{"name": "projects/proj/locations/us-central1/services/web", "uri": "https://web.a.run.app"})
+	})
+	rs := &runService{c}
+	props := provider.ApplyDefaults(rs.Schema(), map[string]any{"name": "web", "image": "img", "serviceAccount": "web-sa@proj.iam.gserviceaccount.com"})
+	if _, err := rs.Create(context.Background(), provider.Request{Env: env, Properties: props}); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d", attempts)
+	}
+	// A bad image is a real error and must not be retried.
+	if isServiceAccountPropagation(&APIError{Code: 400, Message: "Image 'gcr.io/x/missing' not found."}) {
+		t.Fatal("image errors must not be treated as propagation delay")
+	}
+}

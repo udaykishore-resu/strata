@@ -104,6 +104,9 @@ type PropertyDiff struct {
 	New        any    `json:"new,omitempty"`
 	ForcesNew  bool   `json:"forcesNew,omitempty"`
 	KnownLater bool   `json:"knownAfterApply,omitempty"`
+	// Drift marks a property whose live value (Old) differs from what
+	// Strata last applied; the update restores the declared value.
+	Drift bool `json:"drift,omitempty"`
 }
 
 // Change is one planned resource change.
@@ -113,6 +116,10 @@ type Change struct {
 	Action     Action         `json:"action"`
 	PhysicalID string         `json:"physicalId,omitempty"`
 	Diffs      []PropertyDiff `json:"diffs,omitempty"`
+	// Live holds the observed values of drifted properties found by the
+	// plan-time refresh. The update sends them as the previous properties
+	// so providers patch fields that changed out of band.
+	Live map[string]any `json:"live,omitempty"`
 }
 
 // ChangeSetStatus is the status of a change set.

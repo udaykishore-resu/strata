@@ -264,3 +264,28 @@ func Normalize(v any) any {
 func Equal(a, b any) bool {
 	return reflect.DeepEqual(Normalize(a), Normalize(b))
 }
+
+// EquivalentLive is Equal, except that absent, null, "", empty lists and
+// empty objects are all the same value. Cloud APIs routinely return an
+// empty string or object for a field that was never set, so comparisons
+// between applied and observed properties use this.
+func EquivalentLive(a, b any) bool {
+	if isEmptyValue(a) && isEmptyValue(b) {
+		return true
+	}
+	return Equal(a, b)
+}
+
+func isEmptyValue(v any) bool {
+	switch x := Normalize(v).(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	}
+	return false
+}

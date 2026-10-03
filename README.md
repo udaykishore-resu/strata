@@ -15,7 +15,7 @@ AWS has CDK on top of CloudFormation. Google never shipped either half: no state
 - **Crash-safe, resumable operations.** Operations run under database leases with heartbeats. Progress is checkpointed atomically with resource state after every step, and intent is journaled before every cloud call, so a worker killed mid-deploy is resumed by another worker that reconciles in-flight calls (adopting resources that were created but not recorded) instead of duplicating them.
 - **Horizontal scale.** Any number of instances share one Postgres; `FOR UPDATE SKIP LOCKED` claims, lease fencing on every write, and immediate lease handoff on graceful shutdown.
 - **Dependency-ordered parallelism.** References (`ref`, `getAtt`) and `dependsOn` build a DAG; independent resources deploy concurrently, deletes run dependents-first.
-- **Drift detection.** Reads every resource and diffs live state against what was applied.
+- **Drift detection and repair.** Reads every resource and diffs live state against what was applied; every plan refreshes first, so a redeploy puts back anything changed by hand.
 - **Direct GCP REST providers.** 13 resource types on the standard library alone: ADC/metadata/service-account-key/impersonation auth, retries with jitter, long-running-operation polling, IAM read-modify-write with etag-conflict retries that preserve bindings Strata doesn't own, and handling for eventual consistency of new service accounts.
 - **Construct library.** `storage`, `pubsub`, `run`, `iam` and `secretmanager` L2 constructs with secure defaults and intent-based grants (`bucket.GrantReadWrite(api.ServiceAccount())`). APIs are enabled automatically, and Cloud Run services get a dedicated least-privilege identity by default.
 - **Production plumbing.** Google ID-token auth (signature-verified, or Cloud Run IAM), caller allowlists, audit logs, Cloud Logging-formatted JSON logs, Prometheus metrics, a distroless non-root image, a one-command GCP bootstrap, Cloud Build and GitHub Actions CD with Workload Identity Federation.
@@ -44,6 +44,24 @@ Plan: 0 to create, 1 to update, 0 to replace, 0 to delete, 18 unchanged.
 ```
 
 With Postgres (the production store) via Docker: `make compose-up`.
+
+## Try it on real GCP in 5 minutes
+
+No bootstrap or Cloud SQL needed: the engine runs on your laptop with your gcloud credentials and deploys [`examples/hello-gcp`](examples/hello-gcp/main.go), a public Cloud Run service plus a private bucket (8 resources).
+
+```bash
+gcloud auth application-default login
+PROJECT_ID=my-sandbox-project bash scripts/demo-gcp.sh
+```
+
+The script pauses between steps so you can record them:
+
+1. **Plan:** shows the change set built from Go constructs.
+2. **Deploy:** creates everything, then calls the live URL.
+3. **Break it:** deploys an image that doesn't exist; Strata rolls back automatically and the service keeps serving.
+4. **Drift:** turns off bucket versioning with gcloud; `strata drift` flags it and a redeploy restores it.
+
+It finishes with `strata destroy`. Use `NO_PAUSE=1` to run straight through, or `STRATA_PROVIDER=fake` to rehearse offline.
 
 ## Define a stack in Go
 
@@ -147,6 +165,12 @@ The GCP providers are verified against their REST contracts with fakes. Before r
 - IAM is managed per member (non-authoritative); there is no authoritative policy resource.
 - No cross-stack references or nested stacks yet; stack outputs are readable via the API.
 - Secret values are intentionally out of band; only secret containers and access are declared.
+
+## Repository
+
+**Description:** CloudFormation-style deployment engine for Google Cloud with a CDK in Go. Change sets, automatic rollback, crash-safe resumable operations and drift detection over direct GCP REST APIs, without Terraform.
+
+**Topics:** `gcp` `google-cloud` `infrastructure-as-code` `iac` `cdk` `cloudformation` `deployment-engine` `golang` `cloud-run` `control-plane` `platform-engineering` `devops` `postgresql` `distributed-systems`
 
 ## Skills demonstrated
 
