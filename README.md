@@ -3,11 +3,7 @@
 **A CloudFormation-style deployment engine for Google Cloud, with a CDK in Go.**
 Write infrastructure as Go constructs, synthesize a template, and let a managed control plane plan, apply, roll back and audit it by calling GCP APIs directly. No Terraform, no Infrastructure Manager, no Deployment Manager.
 
-```
-Go constructs ──synth──▶ template.json ──▶ Strata API ──▶ change set (plan) ──▶ operation ──▶ GCP REST APIs
-                                             │                                   │
-                                             └────────── Postgres: stacks, checkpoints, events
-```
+![Strata architecture on Google Cloud](docs/architecture.svg)
 
 AWS has CDK on top of CloudFormation. Google never shipped either half: no stateful deployment engine to target, and no first-party construct library. Strata is both halves, built as one service.
 
