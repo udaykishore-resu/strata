@@ -96,14 +96,17 @@ func eachStore(t *testing.T, fn func(t *testing.T, h *harness)) {
 		return
 	}
 	t.Run("postgres", func(t *testing.T) {
-		pg, err := postgres.Open(context.Background(), dsn)
+		// A schema per test: packages run in parallel against one database.
+		isolated, drop, err := postgres.IsolatedSchema(context.Background(), dsn, "strata_test_engine")
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { pg.Close() })
-		if err := pg.Truncate(context.Background()); err != nil {
+		pg, err := postgres.Open(context.Background(), isolated)
+		if err != nil {
+			drop()
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { pg.Close(); drop() })
 		fn(t, newHarness(t, pg))
 	})
 }

@@ -17,15 +17,7 @@ func TestConformance(t *testing.T) {
 		t.Skip("STRATA_TEST_DATABASE_URL not set")
 	}
 	storetest.Run(t, func(t *testing.T) state.Store {
-		s, err := Open(context.Background(), dsn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.Exec(`TRUNCATE stacks, change_sets, operations, events RESTART IDENTITY`); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { s.Close() })
-		return s
+		return openIsolated(t, dsn)
 	})
 }
 
@@ -34,13 +26,34 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	if dsn == "" {
 		t.Skip("STRATA_TEST_DATABASE_URL not set")
 	}
+	isolated, drop, err := IsolatedSchema(context.Background(), dsn, "strata_test_store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer drop()
 	for i := 0; i < 2; i++ {
-		s, err := Open(context.Background(), dsn)
+		s, err := Open(context.Background(), isolated)
 		if err != nil {
 			t.Fatal(err)
 		}
 		s.Close()
 	}
+}
+
+// openIsolated opens a store in a schema of its own, dropped after the test.
+func openIsolated(t *testing.T, dsn string) *Store {
+	t.Helper()
+	isolated, drop, err := IsolatedSchema(context.Background(), dsn, "strata_test_store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(context.Background(), isolated)
+	if err != nil {
+		drop()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(); drop() })
+	return s
 }
 
 func TestDSNFromEnv(t *testing.T) {

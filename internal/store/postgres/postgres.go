@@ -7,6 +7,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -104,10 +105,39 @@ func redact(dsn string) string {
 	return dsn
 }
 
-// Truncate deletes all data (tests only).
-func (s *Store) Truncate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `TRUNCATE stacks, change_sets, operations, events RESTART IDENTITY`)
-	return err
+// IsolatedSchema creates a fresh schema and returns a DSN whose search_path
+// points at it, plus a cleanup function that drops it. Tests use it so
+// packages running in parallel against one database never share tables.
+func IsolatedSchema(ctx context.Context, dsn, prefix string) (string, func(), error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return "", nil, err
+	}
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		db.Close()
+		return "", nil, err
+	}
+	schema := fmt.Sprintf("%s_%x", prefix, b)
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+schema); err != nil {
+		db.Close()
+		return "", nil, err
+	}
+	var out string
+	if strings.Contains(dsn, "://") {
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		out = dsn + sep + "search_path=" + schema
+	} else {
+		out = dsn + " search_path=" + schema
+	}
+	drop := func() {
+		_, _ = db.ExecContext(context.Background(), `DROP SCHEMA `+schema+` CASCADE`)
+		db.Close()
+	}
+	return out, drop, nil
 }
 
 // Close closes the connection pool.
