@@ -557,10 +557,7 @@ func (s *subscription) Read(ctx context.Context, req provider.Request) (provider
 }
 
 func (s *subscription) Update(ctx context.Context, req provider.Request) (provider.Result, error) {
-	var mask []string
-	for _, k := range changed(req.OldProperties, req.Properties, "ackDeadlineSeconds", "retainAckedMessages", "labels", "messageRetentionDuration") {
-		mask = append(mask, k)
-	}
+	mask := changed(req.OldProperties, req.Properties, "ackDeadlineSeconds", "retainAckedMessages", "labels", "messageRetentionDuration")
 	if len(changed(req.OldProperties, req.Properties, "deadLetterTopic", "maxDeliveryAttempts")) > 0 {
 		mask = append(mask, "deadLetterPolicy")
 	}

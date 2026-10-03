@@ -27,7 +27,6 @@ type fakeAPI struct {
 	t        *testing.T
 	mu       sync.Mutex
 	handlers map[string]func(w http.ResponseWriter, r *http.Request, body map[string]any)
-	log      []string
 }
 
 func newFakeAPI(t *testing.T) (*fakeAPI, *Client) {
@@ -55,7 +54,6 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.Method + " " + r.URL.EscapedPath()
 	f.mu.Lock()
-	f.log = append(f.log, key+"?"+r.URL.RawQuery)
 	h, ok := f.handlers[key]
 	f.mu.Unlock()
 	var body map[string]any
@@ -67,12 +65,6 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h(w, r, body)
-}
-
-func (f *fakeAPI) calls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.log...)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
